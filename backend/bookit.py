@@ -28,69 +28,43 @@ def main():
                 max_tokens = 256,
                 openai_api_key=openai_api_key)
 
-    # Prompt
-    template = """You are a customers' assistant named Kate, booking reservations for a restaurant, today is {current_date}
-    Take the folowing user input: {{query}}, confirm with the client his intent (options are restricted to new reservation, reservation modification, or asking a general question about the restaurant)
-    Extract the mentioned date, find the number of available tables and ask for the name of the person reserving.
-    
-    Sum up the conversation by repeating the collected details in the following:
-    Name:
-    Number of persons:
-    Date and Time:
-    
-    Finalize with 'Thank you for your reservation!'""".format(current_date=current_date)
 
-    system_message_prompt = SystemMessagePromptTemplate.from_template(template)
-    human_template="{query}"
-    human_message_prompt = HumanMessagePromptTemplate.from_template(human_template)
-    chat_prompt = ChatPromptTemplate.from_messages([system_message_prompt,human_message_prompt])
-    
-    # prompt = ChatPromptTemplate(
-    #     messages=[
-    #         SystemMessagePromptTemplate.from_template(
-    #             """You are a customers' assistant named Kate, booking reservations for a restaurant, today is the 12th of December"
-    # Take the folowing user input: {text}
-    
-    # Extract the mentioned date, find the number of available tables and ask for reservation details.
-    
-    # Sum up the conversation by repeating the collected details in the following:
-    # Name:
-    # Number of persons:
-    # Date and Time:
-    
-    # Finalize with 'Thank you for your reservation!'"""
-    #         ),
-    #         # The `variable_name` here is what must align with memory
-    #         MessagesPlaceholder(variable_name="chat_history"),
-    #         HumanMessagePromptTemplate.from_template("{text}"),
-    #     ]
-    # )
-    # 
-    #    # Notice that we `return_messages=True` to fit into the MessagesPlaceholder
+    # Prompt
+    prompt = ChatPromptTemplate(
+        messages=[
+            SystemMessagePromptTemplate.from_template(
+                """
+                Today is the {current_date}
+                You are a chatbot that is responsible to handle a restaurant's booking reservations, you sound as human as possible, answering in short sentences only.
+                Your goal is to gather the number of people and date of reservation, make sure there is a place available.
+
+                If there is a place available, you ask for the name of the person and book the table.
+                If there is no place available, you can propose an alternative date.
+
+                To end the chat, you confirm the details (number of persons, date and name) with the client
+                """.format(current_date=current_date)
+            ),
+            # The `variable_name` here is what must align with memory
+            MessagesPlaceholder(variable_name="chat_history"),
+            HumanMessagePromptTemplate.from_template("{question}"),
+        ]
+    )
+
+    # Notice that we `return_messages=True` to fit into the MessagesPlaceholder
     # Notice that `"chat_history"` aligns with the MessagesPlaceholder name
     memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    #conversation = LLMChain(llm=llm, prompt=prompt, verbose=True, memory=memory)
+    conversation = LLMChain(llm=llm, prompt=prompt, verbose=True, memory=memory)
 
     # Notice that we just pass in the `question` variables - `chat_history` gets populated by memory
-   # conversation({"text": "hi"})
-   # print(conversation({"text": "I would like to book a table tomorrow evening"}))
 
-    def get_response(query):
-        chain = LLMChain(llm=llm, prompt=chat_prompt, memory = memory)
-        response = chain.run(query)
+    conversation = LLMChain(llm=llm, prompt=prompt, memory = memory)
 
-        return response
 
     # conversation flow
-    conversation = []
     while True:
         query = input("Human: ")
-        conversation.append('User: ' + query)
+        print(conversation({"question": query}))
 
-        output = get_response(query)
-        conversation.append('Bookit: ' + output)
-
-        print(output)
 
 
 if __name__ == "__main__": 
