@@ -11,8 +11,59 @@ from langchain.prompts import (
     MessagesPlaceholder,
     SystemMessagePromptTemplate,
 )
+from langchain.tools import BaseTool
+from pydantic import BaseModel, Field
+from langchain.agents import initialize_agent, Tool
+from langchain.agents import AgentType
+from typing import Optional, Type, ClassVar
+
+available_tables = 15
 
 
+def get_available_spots_on_date(date):
+    print('entered get available spots')
+    return available_tables
+
+def new_reservation(date, seats, name):
+    print('new reservation booked')
+    available_tables -= seats
+    return 1
+
+# class to get available tables by date
+class AvailableTablesByDateInput(BaseModel):
+    """Input for available seats on specific date check."""
+
+    date: int = Field(..., description="Date on which the customer wants to make a reservation")
+
+class AvailableTablesByDate(BaseTool):
+    name = "get_available_spots_on_date"
+    description = "Get the number of available reservable seats on that date"
+
+    def _run(self, date: int):
+            tables = get_available_spots_on_date(date)
+            return tables
+    
+    args_schema: Optional[Type[BaseModel]] = AvailableTablesByDateInput
+
+# class to make new reservation
+class NewReservationInput(BaseModel):
+    """Input for making a new reservation on a specific date."""
+
+    date: int = Field(..., description="Date on which the customer wants to make a reservation")
+    seats: int = Field(..., description="Number of seats to be reserved on the specified date")
+    name: str = Field(..., description="Name of the customer making a reservation")
+
+
+class NewReservation(BaseTool):
+    name = "new_reservation"
+    description = "Make a new reservation using the date, number of seats and name of customer"
+
+    def _run(self, date: int, seats: int, name: str):
+            tables = new_reservation(date, seats, name)
+            return tables
+    
+    args_schema: Optional[Type[BaseModel]] = NewReservationInput
+    
 def main():
 
     # Load environment variables from .env file
@@ -23,13 +74,83 @@ def main():
 
     current_date = datetime.date.today()
 
+    available_seats_tool = [AvailableTablesByDate()] 
+    new_reservation_tool = [NewReservation()]
+
     llm = ChatOpenAI(model_name='gpt-3.5-turbo',
                 temperature = 0,
                 max_tokens = 256,
                 openai_api_key=openai_api_key)
 
+    seats_agent = initialize_agent(available_seats_tool, llm, agent=AgentType.OPENAI_FUNCTIONS, verbose=True)
+    reservation_agent = initialize_agent(new_reservation_tool, llm, agent=AgentType.OPENAI_FUNCTIONS, verbose=True)
+    """
+    function_descriptions = [
+        {
+            "name": "get_available_spots_on_date",
+            "description": "Get the number of available reservable seats on that date",
+            "parameters": {
+                "type": "integer",
+                "properties": {
+                    "date": {
+                        "type": "integer",
+                        "description": "the date on which one is checking availabilities",
+                    },
+                },
+                "required": ["date"],
+            },
+        },
+        {
+            "name": "new_reservation",
+            "description": "Make a new reservation",
+            "parameters": {
+                "type": "integer",
+                "properties": {
+                    "date": {
+                        "type": "integer",
+                        "description": "the date on which one is checking availabilities",
+                    },
+                    "seats": {
+                        "type": "integer",
+                        "description": "the number of seats to reserve",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "the name on which the reservation is",
+                    },
+                },
+                "required": ["date", "seats", "name"],
+            },
+        },
+        {
+            "name": "edit_reservation",
+            "description": "Modify an existing reservation",
+            "parameters": {
+                "type": "integer",
+                "properties": {
+                    "old_date": {
+                        "type": "integer",
+                        "description": "the date on which the current reservation is",
+                    },
+                    "seats": {
+                        "type": "integer",
+                        "description": "the number of seats to reserve",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "the name on which the reservation is",
+                    },
+                    "new_date":{
+                        "type": "integer",
+                        "description": "the date on which the reservation will be"
+                    }
+                },
+                "required": ["old_date", "seats", "name", "new_date"],
+            },
+        }
+    ]
+"""
 
-    
 # Prompt
     intent_prompt = ChatPromptTemplate(
         messages=[
@@ -66,7 +187,7 @@ def main():
             ),
             # The `variable_name` here is what must align with memory
             MessagesPlaceholder(variable_name="new_chat_history"),
-            HumanMessagePromptTemplate.from_template("{question}"),
+            HumanMessagePromptTemplate.from_template("{question}, {available_seats}"),
         ],
     )
 
@@ -122,7 +243,6 @@ def main():
     memory = ConversationBufferMemory(memory_key="cancel_chat_history", return_messages=True)
     cancel_reservation_conversation = LLMChain(llm=llm, prompt=cancel_reservation_prompt, verbose=False, memory = memory)
 
-
     # conversation flow
     query = input("Human: ")
     intent = intent_conversation.run({"question": query})
@@ -131,7 +251,8 @@ def main():
         match intent:
             case 'New':
                 print('entering new')
-                print(new_reservation_conversation.run({"question": query}))
+                print(seats_agent.run(query))
+                #print(new_reservation_conversation.run({"question": query, "available_seats": available_seats}))
                 query = input("Human: ")
             case 'Edit':
                 print('entering edit')
@@ -146,9 +267,6 @@ def main():
                 query = input("Human: ")
                 intent = intent_conversation.run({"question": query})
                 print(intent)
-
-
-
 
 if __name__ == "__main__": 
     main()
